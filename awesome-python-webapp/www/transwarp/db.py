@@ -115,7 +115,6 @@ def create_engine (user,password,database,host='127.0.0.1',port=3306,**kw):
 	params.update(kw)
 	params['buffered'] = True
 	#在这里(lambda:mysql.connector.connect(**params))返回的是一个函数而不是一个connection对象
-	logging.info('%s' %params)
 	engine = _Engine(lambda:mysql.connector.connect(**params))
 	logging.info('Init mysql engine <%s> ok.' %hex(id(engine)))	
 	
@@ -147,6 +146,7 @@ class _LasyConnection(object):
 #接下来解决对于不同的线程数据库链接应该是不一样的 于是创建一个变量  是一个threadlocal 对象
 class _DbCtx(threading.local):
 	def __init__ (self):
+
 		self.connection = None
 		self.transactions = 0
 	
@@ -210,7 +210,7 @@ class _TransactionCtx(object):
 
 	def __exit__ (self,exctype,excvalue,traceback):
 		global _db_ctx
-		_db_ctx.transations = _db_ctx.transactions -1
+		_db_ctx.transactions = _db_ctx.transactions -1
 		try:
 			if _db_ctx.transactions==0:
 				if exctype is None:
@@ -254,12 +254,39 @@ def transaction ():
 	...			raise StandardError('will cause rollback...')
 	>>> with transaction():
 	...		update_profile(900301, 'Python', False)		
-	
+	>>> select_one('select * from user where id=?',900301).name
+	u'Python'
+	>>> with transaction():
+	... 	update_profile(900302,'Ruby',True)
+	Traceback (most recent call last):
+		...
+	StandardError: will cause rollback...
+	>>> select('select * from user where id = ?',900302)
+	[]
 	'''
 	return _TransactionCtx()
 
 def with_transaction (func):
+	'''
+	A decorator that makes function around transaction.
 
+	>>> @with_transaction
+	... def update_profile(id,name,rollback):
+	... 	u = dict(id=id, name=name, email='%s@test.org' % name, passwd=name, last_modified=time.time())
+	... 	insert('user',**u)
+	... 	r = update('update user set passwd=? where id = ?',name.upper(),id)
+	... 	if rollback:
+	... 		raise StandardError('will cause rollback...')
+	>>> update_profile(8080,'Julia',False)
+	>>> select_one('select * from user where id = ?',8080).passwd
+	u'JULIA'
+	>>> update_profile(9090,'Robert',True)
+	Traceback (most recent call last):
+		...
+	StandardError: will cause rollback...
+	>>> select('select * from user where id=?',9090)
+	[]
+	'''
 	@functools.wraps(func)
 	def _wrapper (*args,**kw):
 		_start = time.time()
@@ -267,6 +294,30 @@ def with_transaction (func):
 			return func(*args, **kw)
 		_profiling(_start)
 	return _wrapper
+
+def _select(sql,first,*args):
+	global _db_ctx
+	cursor = None
+	sql = sql.replace('?','%s')
+	logging.info('SQL: %s, ARGS: %s' % (sql, args))
+	try:
+		cursor = _db_ctx.connection.cursor()
+		cursor.execute(sql,args)
+		if cursor.description:
+			names = [x[0] for x in cursor.description]
+		if first:
+			values = cursor.fetchone()
+			if not values:
+				return None
+			return Dict(names,values)
+		return [Dict(names,x) for x in cursor.fetchall()]
+	finally:
+		if cursor:
+			cursor.close()
+
+@with_connection
+def select_one(sql,*args):
+	return _select(sql,True,*args)
 
 def insert (table,**kw):
 	cols,args = zip(*kw.iteritems())
@@ -281,9 +332,7 @@ def _update (sql,*args):
 	sql = sql.replace('?', '%s')
 	logging.info('SQL: %s, ARGS: %s' % (sql, args))
 	try:
-		logging.info('获取cursor')
 		cursor = _db_ctx.connection.cursor()
-		logging.info('开始执行sql:%s' %sql)
 		cursor.execute(sql, args)
 		r = cursor.rowcount
 		if _db_ctx.transactions==0:
@@ -297,14 +346,21 @@ def _update (sql,*args):
 def update (sql,*args):
 	return _update(sql, *args)
 
+
+@with_connection
+def select(sql,*args):
+	return _select(sql,False,*args)
+
+
 if __name__=='__main__':
 	logging.basicConfig(level=logging.DEBUG)
 	create_engine('root','root','test')
+
 	sql = 'drop table if exists user'
 	update(sql)
-
-	#update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
-
+	update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
+	import doctest
+	doctest.testmod()
 	
 
 
