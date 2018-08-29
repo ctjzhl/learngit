@@ -70,7 +70,62 @@ class BooleanField(Field):
 			kw['ddl'] = 'bool'
 		super(BooleanField,self).__init__(**kw)
 
+class TextField(Field):
+	def __init__(self, **kw):
+		if not 'default' in kw:
+			kw['default'] = ''
+		if not 'ddl' in kw:
+			kw['ddl'] = 'text'
+		super(TextField,self).__init__(**kw)
+class BlobField(Field):
+	def __init__(self, **kw):
+		if not 'default' in kw:
+			kw['default'] = ''
+		if not 'ddl' in kw:
+			kw['ddl'] = 'blob'
+		super(BlobField,self).__init__(**kw)	
 
+class VersionField(Field):
+	def __init__(self, name=None):
+		super(VersionField,self).__init__(name=name,default=0,ddl='bigint')
+
+_triggers = frozenset(['pre_insert', 'pre_update', 'pre_delete'])
+
+def _gen_sql(table_name,mappings):
+	pk = None
+	sql = ['-- generating SQL for %s:' % table_name, 'create table `%s` (' % table_name]
+	for f in shorted(mappings.values(),lambda x,y:cmp(x._order,y._order)):
+		if not hasattr(f,'ddl'):
+			raise StandardError('no ddl in field "%s".' % f)
+		ddl = f.ddl
+		nullable = f.nullable
+		if f.primary_key:
+			pk = f.name
+		sql.append(nullable and '  `%s` %s,' % (f.name, ddl) or '  `%s` %s not null,' % (f.name, ddl))
+	sql.append('  primary key(`%s`)' % pk)
+	sql.append(');')
+	return '\n'.join(sql)
+
+class ModeMetaclass(type):
+	def __new__(cls,name,bases,attrs):
+		if name=='Model':
+			return type.__new__(cls,name,bases,attrs)
+		if not hasattr(cls,'subclasses'):
+			cls.subclasses={}
+		if not name in cls.subclasses:
+			cls.subclasses[name] = name
+		else:
+			logging.warning('Redefine class:%s' %name)
+		logging.info('Scan ORMapping %s...' %name)
+		mappings = dict()
+		primary_key = None
+		for k,v in attrs.iteritems():
+			if isinstance(v,Field):
+				if not v.name:
+					v.name = k
+				logging.info('Found mapping: %s => %s' % (k, v))
+				if v.primary_key:
+					psss
 
 if __name__=='__main__':
 	logging.basicConfig(level=logging.DEBUG)
