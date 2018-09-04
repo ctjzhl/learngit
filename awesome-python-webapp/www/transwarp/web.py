@@ -553,6 +553,23 @@ class Request(object):
 		u'1'
 		>>> r['c']
 		u'ABC'
+		>>> r['empty']
+		Traceback (most recent call last):
+			...
+		KeyError: 'empty'
+		>>> b = '----WebKitFormBoundaryQQ3J8kPsjFpTmqNz'
+		>>> pl = ['--%s' % b, 'Content-Disposition: form-data; name=\\"name\\"\\n', 'Scofield', '--%s' % b, 'Content-Disposition: form-data; name=\\"name\\"\\n', 'Lincoln', '--%s' % b, 'Content-Disposition: form-data; name=\\"file\\"; filename=\\"test.txt\\"', 'Content-Type: text/plain\\n', 'just a test', '--%s' % b, 'Content-Disposition: form-data; name=\\"id\\"\\n', '4008009001', '--%s--' % b, '']
+		>>> payload = '\\n'.join(pl)
+		>>> r = Request({'REQUEST_METHOD':'POST', 'CONTENT_LENGTH':str(len(payload)), 'CONTENT_TYPE':'multipart/form-data; boundary=%s' % b, 'wsgi.input':StringIO(payload)})
+		>>> r.get('name')
+		u'Scofield'
+		>>> r.gets('name')
+		[u'Scofield', u'Lincoln']
+		>>> f = r.get('file')
+		>>> f.filename
+		u'test.txt'
+		>>> f.file.read()
+		'just a test'
 		'''
 
 		r = self._get_raw_input()[key]
@@ -560,6 +577,62 @@ class Request(object):
 			return r[0]
 		return r
 
+	def get(self, key, default=None):
+		'''
+		>>> from StringIO import StringIO
+		>>> r = Request({'REQUEST_METHOD':'POST', 'wsgi.input':StringIO('a=1&b=M%20M&c=ABC&c=XYZ&e=')})
+		>>> r.get('a')
+		u'1'
+		>>> r.get('empty', 'DEFAULT')
+		'DEFAULT'
+		'''
+		r = self._get_raw_input().get(key, default)
+		if isinstance(r, list):
+			return r[0]
+		return r
+
+	def gets(self,key):
+		'''
+		>>> from StringIO import StringIO
+		>>> r = Request({'REQUEST_METHOD':'POST', 'wsgi.input':StringIO('a=1&b=M%20M&c=ABC&c=XYZ&e=')})
+		>>> r.gets('a')
+		[u'1']
+		>>> r.gets('c')
+		[u'ABC', u'XYZ']
+		>>> r.gets('empty')
+		Traceback (most recent call last):
+			...
+		KeyError: 'empty'
+		
+		'''
+		r = self._get_raw_input()[key]
+		if isinstance(r, list):
+			return r[:]
+		return [r]
+
+	def input(self,**kw):
+		'''
+		>>> from StringIO import StringIO
+		>>> r = Request({'REQUEST_METHOD':'POST', 'wsgi.input':StringIO('a=1&b=M%20M&c=ABC&c=XYZ&e=')})
+		>>> i = r.input(x=2008)
+		>>> i.a
+		u'1'
+		>>> i.b
+		u'M M'
+		>>> i.c
+		u'ABC'
+		>>> i.x
+		2008
+		>>> i.get('d',u'100')
+		u'100'
+		>>> i.x
+		2008
+		'''
+		copy = Dict(**kw)
+		raw = self._get_raw_input()
+		for k, v in raw.iteritems():
+			copy[k] = v[0] if isinstance(v, list) else v
+		return copy
 
 if __name__ == '__main__':
 	
