@@ -1083,6 +1083,151 @@ def _default_error_handler(e, start_response, is_debug):
 		return _debug()
 	return ('<html><body><h1>500 Internal Server Error</h1><h3>%s</h3></body></html>' % str(e))
 
+def view(path):
+	'''
+	>>> @view('test/view.html')
+	... def hello():
+	... 	return dict(name='Bob')
+	>>> t = hello()
+	>>> isinstance(t, Template)
+	True
+	>>> t.template_name
+	'test/view.html'
+	>>> @view('test/view.html')
+	... def hello2():
+	... 	return ['a list']
+	>>> t = hello2()
+	Traceback (most recent call last):
+		...
+	ValueError: Expect return a dict when using @view() decorator.
+	'''
+	def _decorator(func):
+		@functools.wraps(func)
+		def _wrapper(*args, **kw):
+			r = func(*args, **kw)
+			if isinstance(r, dict):
+				logging.info('return Template')
+				return Template(path, **r)
+			raise ValueError('Expect return a dict when using @view() decorator.')
+		return _wrapper
+	return _decorator
+
+_RE_INTERCEPTROR_STARTS_WITH = re.compile(r'^([^\*\?]+)\*?$')
+_RE_INTERCEPTROR_ENDS_WITH = re.compile(r'^\*([^\*\?]+)$')
+
+def _build_pattern_fn(pattern):
+	m = _RE_INTERCEPTROR_STARTS_WITH.match(pattern)
+	if m:
+		return lambda p: p.startswith(m.group(1))
+	m = _RE_INTERCEPTROR_ENDS_WITH.match(pattern)
+	if m:
+		return lambda p: p.endswith(m.group(1))
+	raise ValueError('Invalid pattern definition in interceptor.')
+
+def interceptor(pattern='/'):
+	def _decorator(func):
+		func.__interceptor__ = _build_pattern_fn(pattern)
+		return func
+	return _decorator
+
+def _build_interceptor_fn(func, next):
+	@functools.wraps(func)
+	def _wrapper():
+		if func.__interceptor__(ctx.request.path_info):
+			return func(next)
+		else:
+			return next()
+	return _wrapper
+
+def _build_interceptor_chain(last_fn, *interceptors):
+	'''
+	>>> def target():
+	... 	print 'target'
+	... 	return 123
+	>>> @interceptor('/')
+	... def f1(next):
+	... 	print 'before f1()'
+	... 	return next()
+	>>> @interceptor('/test/')
+	... def f2(next):
+	... 	print 'before f2()'
+	... 	try:
+	... 		return next()
+	... 	finally:
+	... 		print 'after f2()'
+	>>> @interceptor('/')
+	... def f3(next):
+	... 	print 'before f3()'
+	... 	try:
+	...			return next()
+	... 	finally:
+	... 		print 'after f3()'
+	>>> chain = _build_interceptor_chain(target, f1, f2, f3)
+	>>> ctx.request = Dict(path_info='/test/abc')
+	>>> chain()
+	before f1()
+	before f2()
+	before f3()
+	target
+	after f3()
+	after f2()
+	123
+	>>> ctx.request = Dict(path_info='/api/')
+	>>> chain()
+	before f1()
+	before f3()
+	target
+	after f3()
+	123
+	'''
+	L = list(interceptors)
+	L.reverse()
+	fn = last_fn
+	for f in L:
+		fn = _build_interceptor_fn(f, fn)
+	return fn
+
+def _load_module(module_name):
+	'''
+	>>> m = _load_module('xml')
+	>>> m.__name__
+	'xml'
+	>>> m = _load_module('xml.sax')
+	>>> m.__name__
+	'xml.sax'
+	>>> m = _load_module('xml.sax.handler')
+	>>> m.__name__
+	'xml.sax.handler'
+	'''
+	last_dot = module_name.rfind('.')
+	if last_dot==(-1):
+		return __import__(module_name, globals(), locals())
+	from_module = module_name[:last_dot]
+	import_module = module_name[last_dot+1:]
+	m = __import__(from_module, globals(), locals(), [import_module])
+	return getattr(m, import_module)
+
+class WSGIApplication(object):
+
+	def __init__(self, document_root=None, **kw):
+		self._running = False
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
 	
