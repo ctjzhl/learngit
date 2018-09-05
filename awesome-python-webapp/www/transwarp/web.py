@@ -634,6 +634,253 @@ class Request(object):
 			copy[k] = v[0] if isinstance(v, list) else v
 		return copy
 
+	def get_body(self):
+		'''
+		>>> from StringIO import StringIO
+		>>> r = Request({'REQUEST_METHOD':'POST', 'wsgi.input':StringIO('<xml><raw/>')})
+		>>> r.get_body()
+		'<xml><raw/>'
+		'''
+		fp = self._environ['wsgi.input']
+		return fp.read()
+
+	@property
+	def remote_addr(self):
+		'''
+		>>> r = Request({'REMOTE_ADDR': '192.168.0.100'})
+		>>> r.remote_addr
+		'192.168.0.100'
+		'''
+		return self._environ.get('REMOTE_ADDR', '0.0.0.0')
+
+	@property
+	def document_root(self):
+		'''
+		>>> r = Request({'DOCUMENT_ROOT': '/srv/path/to/doc'})
+		>>> r.document_root
+		'/srv/path/to/doc'
+		'''
+		return self._environ.get('DOCUMENT_ROOT', '')
+
+	@property
+	def query_string(self):
+		'''
+		>>> r = Request({'QUERY_STRING': 'a=1&c=2'})
+		>>> r.query_string
+		'a=1&c=2'
+		>>> r = Request({})
+		>>> r.query_string
+		''
+		'''
+		return self._environ.get('QUERY_STRING', '')
+
+	@property
+	def environ(self):
+		'''
+		>>> r = Request({'REQUEST_METHOD': 'GET', 'wsgi.url_scheme':'http'})
+		>>> r.environ.get('REQUEST_METHOD')
+		'GET'
+		>>> r.environ.get('wsgi.url_scheme')
+		'http'
+		>>> r.environ.get('SERVER_NAME')
+		>>> r.environ.get('SERVER_NAME', 'unamed')
+		'unamed'
+		'''
+		return self._environ
+
+	@property
+	def request_method(self):
+		'''
+		>>> r = Request({'REQUEST_METHOD': 'GET'})
+		>>> r.request_method
+		'GET'
+		>>> r = Request({'REQUEST_METHOD': 'POST'})
+		>>> r.request_method
+		'POST'
+		'''
+		return self._environ['REQUEST_METHOD']
+
+	@property
+	def path_info(self):
+		'''
+		>>> r = Request({'PATH_INFO': '/test/a%20b.html'})
+		>>> r.path_info
+		'/test/a b.html'
+		'''
+		return urllib.unquote(self._environ.get('PATH_INFO', ''))
+
+	@property
+	def host(self):
+		'''
+		>>> r = Request({'HTTP_HOST': 'localhost:8080'})
+		>>> r.host
+		'localhost:8080'
+		'''
+		return self._environ.get('HTTP_HOST', '')
+
+	def _get_headers(self):
+		if not hasattr(self, '_headers'):
+			hdrs = {}
+			for k, v in self._environ.iteritems():
+				if k.startswith('HTTP_'):
+					hdrs[k[5:].replace('_', '-').upper()] = v.decode('utf-8')
+			self._headers = hdrs
+		return self._headers
+
+	@property
+	def headers(self):
+		'''
+		>>> r = Request({'HTTP_USER_AGENT': 'Mozilla/5.0', 'HTTP_ACCEPT': 'text/html'})
+		>>> H = r.headers
+		>>> H['ACCEPT']
+		u'text/html'
+		>>> H['USER-AGENT']
+		u'Mozilla/5.0'
+		>>> L = H.items()
+		>>> L.sort()
+		>>> L
+		[('ACCEPT', u'text/html'), ('USER-AGENT', u'Mozilla/5.0')]
+		'''
+		return dict(**self._get_headers())
+
+
+	def header(self, header, default=None):
+		'''
+		>>> r = Request({'HTTP_USER_AGENT': 'Mozilla/5.0', 'HTTP_ACCEPT': 'text/html'})
+		>>> r.header('User-Agent')
+		u'Mozilla/5.0'
+		>>> r.header('USER-AGENT')
+		u'Mozilla/5.0'
+		>>> r.header('Accept')
+		u'text/html'
+		>>> r.header('Test')
+		>>> r.header('Test', u'DEFAULT')
+		u'DEFAULT'
+		'''
+
+		return self._get_headers().get(header.upper(), default)
+
+
+	def _get_cookies(self):
+		if not hasattr(self, '_cookies'):
+			cookies = {}
+			cookie_str = self._environ.get('HTTP_COOKIE')
+			if cookie_str:
+				for c in cookie_str.split(';'):
+					pos = c.find('=')
+					if pos>0:
+						cookies[c[:pos].strip()] = _unquote(c[pos+1:])
+			self._cookies = cookies
+		return self._cookies
+
+	@property
+	def cookies(self):
+		'''
+		>>> r = Request({'HTTP_COOKIE':'A=123; url=http%3A%2F%2Fwww.example.com%2F'})
+		>>> r.cookies['A']
+		u'123'
+		>>> r.cookies['url']
+		u'http://www.example.com/'
+		'''
+		return Dict(**self._get_cookies())
+
+	def cookie(self, name, default=None):
+		'''
+		>>> r = Request({'HTTP_COOKIE':'A=123; url=http%3A%2F%2Fwww.example.com%2F'})
+		>>> r.cookie('A')
+		u'123'
+		>>> r.cookie('url')
+		u'http://www.example.com/'
+		>>> r.cookie('test')
+		>>> r.cookie('test', u'DEFAULT')
+		u'DEFAULT'
+		'''
+		return self._get_cookies().get(name, default)
+
+UTC_0 = UTC('+00:00')
+
+class Response(object):
+	def __init__(self):
+		self._status = '200 OK'
+		self._headers = {'CONTENT-TYPE': 'text/html; charset=utf-8'}
+
+	@property
+	def headers(self):
+		'''
+		>>> r = Response()
+		>>> r.headers
+		[('Content-Type', 'text/html; charset=utf-8'), ('X-Powered-By', 'transwarp/1.0')]
+		>>> r.set_cookie('s1', 'ok', 3600)
+		>>> r.headers
+		[('Content-Type', 'text/html; charset=utf-8'), ('Set-Cookie', 's1=ok; Max-Age=3600; Path=/; HttpOnly'), ('X-Powered-By', 'transwarp/1.0')]
+		'''
+		L = [(_RESPONSE_HEADER_DICT.get(k, k), v) for k, v in self._headers.iteritems()]
+		if hasattr(self, '_cookies'):
+			for v in self._cookies.itervalues():
+				L.append(('Set-Cookie', v))
+		L.append(_HEADER_X_POWERED_BY)
+		return L
+
+	def header(self, name):
+		'''
+		>>> r = Response()
+		>>> r.header('content-type')
+		'text/html; charset=utf-8'
+		>>> r.header('CONTENT-type')
+		'text/html; charset=utf-8'
+		>>> r.header('X-Powered-By')
+		'''
+		key = name.upper()
+		if not key in _RESPONSE_HEADER_DICT:
+			key = name
+		return self._headers.get(key)
+
+	def unset_header(self, name):
+		'''
+		>>> r = Response()
+		>>> r.header('content-type')
+		'text/html; charset=utf-8'
+		>>> r.unset_header('CONTENT-type')
+		>>> r.header('content-type')
+		'''
+		key = name.upper()
+		if not key in _RESPONSE_HEADER_DICT:
+			key = name
+		if key in self._headers:
+			del self._headers[key]
+	def set_header(self, name, value):
+		pass
+
+
+
+
+
+
+
+
+
+
+
+	def set_cookie(self, name, value, max_age=None, expires=None, path='/', domain=None, secure=False, http_only=True):
+		if not hasattr(self, '_cookies'):
+			self._cookies = {}
+		L = ['%s=%s' % (_quote(name), _quote(value))]
+		if expires is not None:
+			if isinstance(expires, (float, int, long)):
+				L.append('Expires=%s' % datetime.datetime.fromtimestamp(expires, UTC_0).strftime('%a, %d-%b-%Y %H:%M:%S GMT'))
+			if isinstance(expires, (datetime.date, datetime.datetime)):
+				L.append('Expires=%s' % expires.astimezone(UTC_0).strftime('%a, %d-%b-%Y %H:%M:%S GMT'))
+		elif isinstance(max_age, (int, long)):
+			L.append('Max-Age=%d' % max_age)
+		L.append('Path=%s' % path)
+		if domain:
+			L.append('Domain=%s' % domain)
+		if secure:
+			L.append('Secure')
+		if http_only:
+			L.append('HttpOnly')
+		self._cookies[name] = '; '.join(L)
+
 if __name__ == '__main__':
 	
 	logging.basicConfig(level=logging.DEBUG)
