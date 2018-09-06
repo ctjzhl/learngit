@@ -478,7 +478,7 @@ class Route(object):
 		return None
 	
 	def __call__(self,*args):
-		return self.fun(*args)
+		return self.func(*args)
 	
 	def __str__(self):
 		if self.is_static:

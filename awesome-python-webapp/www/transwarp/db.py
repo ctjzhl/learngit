@@ -462,7 +462,7 @@ def update (sql,*args):
 
 if __name__=='__main__':
 	logging.basicConfig(level=logging.DEBUG)
-	create_engine('root','root','test')
+	create_engine('www-data','www-data','awesome')
 
 	sql = 'drop table if exists user'
 	update(sql)
