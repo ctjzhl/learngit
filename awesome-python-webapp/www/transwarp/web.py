@@ -1062,12 +1062,17 @@ class Jinja2TemplateEngine(TemplateEngine):
 		from jinja2 import Environment, FileSystemLoader
 		if not 'autoescape' in kw:
 			kw['autoescape'] = True
+		'''
+		Environment是Jinja2中的一个核心类，它的实例用来保存配置、全局对象，以及从本地文件系统或其它位置加载模板。
+		FileSystemLoader:文件系统加载器，它可以从本地文件系统中查找并加载模板
+		'''
 		self._env = Environment(loader=FileSystemLoader(templ_dir), **kw)
 
 	def add_filter(self, name, fn_filter):
 		self._env.filters[name] = fn_filter
 
 	def __call__(self, path, model):
+		#实现模版渲染，将model中的值和html的变量结合起来
 		return self._env.get_template(path).render(**model).encode('utf-8')
 
 def _default_error_handler(e, start_response, is_debug):
@@ -1093,6 +1098,8 @@ def view(path):
 	True
 	>>> t.template_name
 	'test/view.html'
+	>>> t.model['name']
+	'Bob'
 	>>> @view('test/view.html')
 	... def hello2():
 	... 	return ['a list']

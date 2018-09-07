@@ -112,6 +112,7 @@ def create_engine (user,password,database,host='127.0.0.1',port=3306,**kw):
 	'''
 	for k,v in defaults.iteritems():
 		params[k] = kw.pop(k,v)
+	#字典kw的键/值对更新到params里
 	params.update(kw)
 	params['buffered'] = True
 	#在这里(lambda:mysql.connector.connect(**params))返回的是一个函数而不是一个connection对象
