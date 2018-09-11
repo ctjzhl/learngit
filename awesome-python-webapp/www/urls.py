@@ -15,9 +15,16 @@ from models import User, Blog, Comment
 @get('/')：返回函数：
 	test_users.__web_route__:/
 	test_users.__web_method__:GET
-'''
+
 @view('test_users.html')
 @get('/')
 def test_users():
 	users = User.find_all()
 	return dict(users=users)
+'''
+@view('blogs.html')
+@get('/')
+def index():
+	blogs = Blog.find_all()
+	user = User.find_first('where email=?', 'admin@example.com')
+	return dict(blogs=blogs, user=user)
